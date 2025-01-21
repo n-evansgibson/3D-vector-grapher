@@ -1,8 +1,10 @@
-from cmu_graphics import * 
+from cmu_graphics import *  # type: ignore
 from axesInit import (makeGrid, axesPoints, cubePoints, cubeLines, cubeFaces,
 boxPoints, boxLines, boxFaces)
-from shapely.geometry import Point, Polygon
-import numpy as np
+from utils import (makeNewBox, addOutput, rotatePoints, drawLines, projectPoints, 
+                   removeBox, mouseInBox, inputBox, meshgrid)
+from PIL import Image # type: ignore
+import numpy as np # type: ignore
 import math
 import copy
 import string
@@ -17,7 +19,7 @@ def onAppStart(app):
     app.projectedBoxPoints = [None for _ in range(len(app.boxPoints))]
 
     # define points for axes
-    app.axisSize = 4
+    app.axisSize = 5
     app.axesPoints = axesPoints
     app.originalAxesPoints = [copy.deepcopy(point) for  point in app.axesPoints]
 
@@ -53,7 +55,7 @@ def onAppStart(app):
     makeNewBox(app)
 
     # scales axes and cube
-    app.scale = 60
+    app.scale = 50
     app.centerPos = [11*app.width/16, app.height/2]
 
     # cube rotation
@@ -69,89 +71,18 @@ def onAppStart(app):
     # basic controls
     app.paused = True
     app.mouseInBox = False
+    app.holdCount = 0
 
-# classes are down here because inputBox requires onAppStart vars
-
-class Point2D:
-
-    def __init__(self, label, x, y):
-        self.label = label
-        self.x = x
-        self.y = y
-
-    def __repr__(self):
-        return f'Point {self.label} is at ({self.x}, {self.y})'
-    
-    def __eq__(self, other):
-        return isinstance(other, Point2D) and self.label == other.label
-    
-class inputBox:
-
-    def __init__(self, x, y, ID):
-        self.x = x
-        self.y = y
-        self.width = 1200/4 # 1200 = app.width
-        self.height = 800/12 # 800 = app.height
-        self.crossX = self.x + 15*self.width/16
-        self.crossY = self.y + self.height/4
-        self.input = ''
-        self.id = ID
-        self.selected = False
-        self.crossSelected = False
-        self.drawable = False
-
-    def __repr__(self):
-        return f'Input box at ({self.x}, {self.y})'
-    
-    def __eq__(self, other):
-        return isinstance(other, inputBox) and self.id == other.id
-    
-    def isSelected(self, mouseX, mouseY):
-        left = self.x
-        right = self.x + self.width
-        top = self.y
-        bottom = self.y + self.height
-        return (left <= mouseX <= right) and (top <= mouseY <= bottom)
-
-    def crossIsSelected(self, mouseX, mouseY):
-        left = self.crossX - 10
-        right = self.crossX + 10
-        top = self.crossY - 10
-        bottom = self.crossY + 10
-        return (left <= mouseX <= right) and (top <= mouseY <= bottom)
-
-    def hasDrawablePoint(self):
-        return self.input[0] == '(' and self.input[-1] == ')' and self.input.count(',') == 2
-
-    
-# Adds a new box to the list if the last box was selected
-def makeNewBox(app):
-    lastBox = app.userInputs[-1]
-    lastBoxY = lastBox.y
-    newY = lastBoxY + lastBox.height
-    newID = lastBox.id + 1
-    app.userInputs[-1].selected = True
-    app.userInputs.append(inputBox(lastBox.x, newY, newID))
-
-# Adds point to graph if a point is entered
-def addOutput(app, box):
-    input = box.input
-    coords = []
-    if box.hasDrawablePoint:
-        input = input[1:-1]
-        for s in input.split(','):
-            s.strip()
-            coords.append(float(s))
-        dataType = 'point'
-        # updates user output and copy of user output
-        newOutputBox = [box.id, dataType, []]
-        app.userOutputs[2].append(np.array([coords[0], coords[1], coords[2]]))
-        app.originalUserOutputs.append(np.array([coords[0], coords[1], coords[2]]))
-
-
+    # mesh
+    X = [-4, -2, 0, 2, 4]
+    Y = [-4, -2, 0, 2, 4]
+    Z = [-4, -2, 0, 2, 4]
+    app.mesh = meshgrid(X, Y, Z)
+    app.originalMesh = [copy.deepcopy(point) for point in app.mesh]
+    app.projectedMeshPoints = [None for _ in range(len(app.originalMesh))]
 
 def onStep(app):
-    
+
     # if box is being rotated automatically, increase dragAngleZ and dragAngleY
     if app.boxRotation:
         app.dragAngleZ += app.fixedDragZ * 0.015
@@ -165,7 +96,8 @@ def onStep(app):
     app.axesPoints = [copy.copy(point) for point in app.originalAxesPoints]
     app.gridPoints = [copy.copy(point) for point in app.originalGridPoints]
     app.cubePoints = [copy.copy(point) for point in app.originalCubePoints]
-    app.userOutputs = [copy.copy(point) for point in app.originalUserOutputs]
+    app.userOutputs = [copy.deepcopy(output) for output in app.originalUserOutputs]
+    app.mesh = [copy.deepcopy(point) for point in app.originalMesh]
 
     # updates grid
     makeGrid(app)
@@ -185,11 +117,12 @@ def onStep(app):
     bigRotMatrix = np.dot(axisRotMatrixY, axisRotMatrixZ)
     
     # rotates axis, grid, and cube
-    rotatePoints(app.boxPoints, bigRotMatrix)
-    rotatePoints(app.axesPoints, bigRotMatrix)
-    rotatePoints(app.gridPoints, bigRotMatrix)
-    rotatePoints(app.cubePoints, bigRotMatrix)
-    rotatePoints(app.userOutputs, bigRotMatrix)
+    rotatePoints(app, app.boxPoints, bigRotMatrix)
+    rotatePoints(app, app.axesPoints, bigRotMatrix)
+    rotatePoints(app, app.gridPoints, bigRotMatrix)
+    rotatePoints(app, app.cubePoints, bigRotMatrix)
+    rotatePoints(app, app.userOutputs, bigRotMatrix)
+    rotatePoints(app, app.mesh, bigRotMatrix)
 
     # rotates cube if unpaused
     if not app.paused:
@@ -221,85 +154,35 @@ def takeStep(app):
     ])
 
     # applies rotation to cube points
-    rotatePoints(app.cubePoints, xMatrix)
-    rotatePoints(app.cubePoints, yMatrix)
-    rotatePoints(app.cubePoints, zMatrix)
+    rotatePoints(app, app.cubePoints, xMatrix)
+    rotatePoints(app, app.cubePoints, yMatrix)
+    rotatePoints(app, app.cubePoints, zMatrix)
 
-# applies rotation matrix to points (x, y or z)
-def rotatePoints(pointList, matrix):
-    for i in range(len(pointList)):
-        point = pointList[i].reshape((3,1))
-        rotatedPoint = np.dot(matrix, point)
-        pointList[i] = rotatedPoint.flatten()
-
-def drawLines(app, pointList):
-        
-        if pointList == app.axesPoints:
-            color = 'navy'
-            thicc = 2
-            arrows = True
-            scale = 75
-            labels = True
-        else:
-            color = 'grey'
-            thicc = 1
-            arrows = False
-            scale = app.scale
-            labels = False
-        
-        for i in range(0, len(pointList), 2):
-
-            # find projection of start and end points
-            startPoint = pointList[i].reshape((3,1))
-            endPoint = pointList[i + 1].reshape((3,1))
-            projStart = np.dot(app.projectionMatrix, startPoint)
-            projEnd = np.dot(app.projectionMatrix, endPoint)
-
-            # get coordinates from projection
-            x1 = int(projStart[0] * scale) + app.centerPos[0]
-            y1 = int(projStart[1] * scale) + app.centerPos[1]
-            x2 = int(projEnd[0] * scale) + app.centerPos[0]
-            y2 = int(projEnd[1] * scale) + app.centerPos[1]
-
-            # draws primary axis
-            drawLine(x1, y1, x2, y2, fill = color, lineWidth = thicc, arrowStart = arrows, arrowEnd = arrows)
-            if labels:
-                x1 += 10
-                y1 += 10
-                label = 'X' if i == 0 else ('Y' if i == 2 else 'Z')
-                drawLabel(label, x1, y1, align = 'center', bold = True, size = 20)
-            
-
-# projects all 3D points in a pointList into 2D points, stored in projectedPointList
-def projectPoints(app, pointList, projectedPointList):
-    for i in range(len(pointList)):
-        point = pointList[i]
-
-        # actual matrix multiplication
-        rotatedPoint = point.reshape((3,1))
-        projectedPoint = np.dot(app.projectionMatrix, rotatedPoint)
-
-        # get coordinates from projection
-        x = int(projectedPoint[0] * app.scale) + app.centerPos[0]
-        y = int(projectedPoint[1] * app.scale) + app.centerPos[1]
-
-        # add point to list
-        projectedPointList[i] = Point2D(i, x, y)
 
 def redrawAll(app):
 
-    # projects box and cube points
+    # projects box and cube points, mesh points
     projectPoints(app, app.boxPoints, app.projectedBoxPoints)
     projectPoints(app, app.cubePoints, app.projectedCubePoints)
+    projectPoints(app, app.mesh, app.projectedMeshPoints)
+
+    # If there are outputs, projects each set of user outputs into a 2D list of projected outputs, where
+    # each outer list represents a user output, and the inner list contains the points for that output
+
     if len(app.userOutputs) != 0:
-        projectedUserPoints = [None for _ in range(len(app.userOutputs))]
-        projectPoints(app, app.userOutputs, projectedUserPoints)
+        projectedUserOutputs = [[None, None, []] for _ in range(len(app.userOutputs))]
+        for i in range(len(app.userOutputs)):
+            projectedUserOutputs[i][0] = app.userOutputs[i][0]
+            projectedUserOutputs[i][1] = app.userOutputs[i][1]
+            outputList = copy.deepcopy(app.userOutputs[i][2])
+            projectedUserOutputs[i][2] = [None for _ in range(len(outputList))]
+            projectPoints(app, copy.deepcopy(outputList), projectedUserOutputs[i][2])
 
     # draws each box line
     for i, j in app.boxLines:
         x1, y1 = app.projectedBoxPoints[i].x, app.projectedBoxPoints[i].y
         x2, y2 = app.projectedBoxPoints[j].x, app.projectedBoxPoints[j].y
-        drawLine(x1, y1, x2, y2, fill = 'grey', lineWidth = 0.5)
+        drawLine(x1, y1, x2, y2, fill = 'grey', lineWidth = 0.5) # type: ignore
 
     # draw each cube face
     for a, b, c, d in app.faces:
@@ -307,7 +190,7 @@ def redrawAll(app):
         xB, yB = app.projectedCubePoints[b].x, app.projectedCubePoints[b].y
         xC, yC = app.projectedCubePoints[c].x, app.projectedCubePoints[c].y
         xD, yD = app.projectedCubePoints[d].x, app.projectedCubePoints[d].y
-        drawPolygon(xA, yA, xB, yB, xC, yC, xD, yD, fill = 'grey')
+        drawPolygon(xA, yA, xB, yB, xC, yC, xD, yD, fill = 'grey') # type: ignore
  
     # draws axes and grid lines
     drawLines(app, app.axesPoints)
@@ -319,40 +202,59 @@ def redrawAll(app):
         x1, y1 = app.projectedCubePoints[i].x, app.projectedCubePoints[i].y
         x2, y2 = app.projectedCubePoints[j].x, app.projectedCubePoints[j].y
         # draws line
-        drawLine(x1, y1, x2, y2)
+        drawLine(x1, y1, x2, y2) # type: ignore
 
     # draws each cube point
     for point in app.projectedCubePoints:
         radius = app.pointRad * app.scale/100
-        drawCircle(point.x, point.y, radius, fill = 'black')
+        drawCircle(point.x, point.y, radius, fill = 'black') # type: ignore
 
-    # draws each user point
+    # draws the points for each user output
     if len(app.userOutputs) != 0:
-        for point in projectedUserPoints:
-            radius = app.pointRad * app.scale/ 100
-            drawCircle(point.x, point.y, radius, fill = 'red')
+        for output in projectedUserOutputs:
+            outputList = output[2]
+            dataType = output[1]
+            if dataType == 'point':
+                for point in outputList:
+                    radius = app.pointRad * app.scale/ 100
+                    drawCircle(point.x, point.y, radius, fill = 'red') # type: ignore
+                    # drawImage(app.cowCircle, point.x, point.y, width = radius*10, height = radius*8, align = 'center')
+            elif dataType == 'vector':
+                    x1, y1 = outputList[0].x, outputList[0].y
+                    x2, y2 = outputList[1].x, outputList[1].y
+                    drawLine(x1, y1, x2, y2, fill = 'red', arrowEnd = True) # type: ignore
+            elif dataType == 'vector field':
+                for i in range(len(outputList)):
+                    x1, y1 = app.projectedMeshPoints[i].x, app.projectedMeshPoints[i].y
+                    x2, y2 = outputList[i].x, outputList[i].y
+                    drawLine(x1, y1, x2, y2, fill = 'red', arrowEnd = True, lineWidth = 1) #type: ignore
 
-    #draws input boxes
+
+    #draws background
+    drawRect(0, 0, 9*app.width/24, app.height, fill = 'lavender') # type: ignore
+
+    # draws input boxes
     for box in app.userInputs:
+
         # highlights selected box
         borderW = 2 if box.selected else 1
-        borderColor = 'red' if box.selected else 'black'
+        borderColor = 'darkSlateBlue' if box.selected else 'black'
         opacitea = 40 if box.id == len(app.userInputs) else 100
         # makes selected cross red
         crossColor = 'red' if box.crossSelected else 'black'
+
         # draws box, input, id, and x
-        drawRect(box.x, box.y, box.width, box.height, fill = None, border = borderColor, borderWidth = borderW, opacity = opacitea)
-        drawLabel(box.input, box.x + 10, box.y + box.height/2, size = 16, align = 'left')
-        drawLabel('X', box.crossX, box.crossY, size = 16, opacity = opacitea, fill = crossColor)
-        drawLabel(f'{box.id}', box.x + 10, box.crossY, size = 16, opacity = opacitea)
+        drawRect(box.x, box.y, box.width, box.height, fill = None, border = borderColor, borderWidth = borderW, opacity = opacitea) # type: ignore
+        drawLabel(box.input, box.x + 15, box.y + box.height/2, size = 16, align = 'left') # type: ignore
+        drawLabel('X', box.crossX, box.crossY, size = 16, opacity = opacitea, fill = crossColor) # type: ignore
+        drawLabel(f'{box.id}', box.x + 10, box.crossY, size = 16, opacity = opacitea) # type: ignore
         
     # title and instructions
-    drawLabel('desmoo', app.width/2, app.height/20, size = 16)
-    drawLabel('press p to pause, up/down arrows to adjust grid', app.width/2, app.height/20 + 20, size = 12)
-    drawLabel('left/right arrows to change view', app.width/2, app.height/20 + 30, size = 12)
+    drawLabel('3D Vector Grapher', app.width/5, app.height/20, size = 20, font = 'montserrat', bold = True) # type: ignore
+    drawLabel('Click and drag graph to view. Press P to spin cube.', app.width/5, app.height/20 + 30, size = 16, font = 'montserrat') # type: ignore
+    drawLabel('Add points as (x,y,z) or vectors as [x y z].', app.width/5, app.height/20 + 50, size = 16, font = 'montserrat') # type: ignore
+    drawLabel('Add constant vector fiends as f(x, y, z) = [a, b, c].', app.width/5, app.height/20 + 70, size = 16, font = 'montserrat') # type: ignore
     
-    # test: mouse-cube intersection
-    drawLabel(f'mouse-cube intersection: {app.mouseInBox}', app.width/2 - 40, app.height - 20, size = 12)
 
 def onKeyPress(app, key):
     # general controls
@@ -364,12 +266,12 @@ def onKeyPress(app, key):
         app.gridSize -= 0.1
     if key == 'down':
         app.gridSize += 0.1
-    if key == 'j':
+    if key == 'nah':
         app.scale += 5
-    if key == 'k':
+    if key == 'nah':
         app.scale -= 5
 
-    # writing
+    # writing in input boxes
     for box in app.userInputs:
         if box.selected:
             if key in string.printable:
@@ -383,11 +285,23 @@ def onKeyPress(app, key):
 
     
 def onKeyHold(app, keys):
+
     # rotate viewer angle
     if 'left' in keys:
         app.viewerAngleZ -= math.pi/36
     if 'right' in keys: 
         app.viewerAngleZ += math.pi/36
+
+    # controls backspace when held
+    if 'backspace' in keys:
+        app.holdCount += 1
+        for box in app.userInputs:
+            # if backspace has been held in a box for more than a second, allow backspace hold
+            if box.selected and box.input == '':
+                app.holdCount = 0
+            elif box.selected and app.holdCount > 19 and app.holdCount % 2 == 0:
+                box.input = box.input[:-1]
+    
 
 # dragging the box to rotate
 def onMousePress(app, mouseX, mouseY):
@@ -413,18 +327,8 @@ def onMousePress(app, mouseX, mouseY):
         # removes a box and adjusts IDS if a cross is selected
         if box.crossSelected and len(app.userInputs) > 2: 
             removeBox(app, box)
-    print(app.userOutputs)
 
-def removeBox(app, box):
-    removedBoxID = box.id - 1
-    app.userInputs.pop(removedBoxID)
-    app.originalUserOutputs.pop(removedBoxID)
-    for i in range(removedBoxID, len(app.userInputs)):
-        box = app.userInputs[i]
-        box.id -= 1
-        # shifts boxes upwards (800/12 = box.height)
-        box.y -= 800/12 
-        box.crossY -= 800/12
+
 
 # If the mouse is in the box, stop rotation. If the mouse is outside of the box, rotate until mouse is pressed
 def onMouseRelease(app, mouseX, mouseY):
@@ -455,39 +359,8 @@ def onMouseMove(app, mouseX, mouseY):
     for box in app.userInputs:
         box.crossSelected = box.crossIsSelected(mouseX, mouseY) and box.id != lastBoxID
         
-
-# mouse in polygon algorithm 
-def mouseInBox(app, mouseX, mouseY):
-    for i, j, k, l in app.boxFaces:
-        intersections = 0
-        for lineIndex in [i, j, k, l]:
-            p1, p2 = app.boxLines[lineIndex]
-            x1, y1 = app.projectedBoxPoints[p1].x, app.projectedBoxPoints[p1].y
-            x2, y2 = app.projectedBoxPoints[p2].x, app.projectedBoxPoints[p2].y
-            # checks if a ray coming from the left of the point intersects the polygon face
-            if ((mouseY < y1) != (mouseY < y2)) and (mouseX < x1 + ((mouseY-y1)/(y2-y1))*(x2-x1)):
-                intersections += 1
-        if intersections % 2 == 1:
-            return True
-    return False
-
-# mouse in polygon algorithm using shapely (better)
-def mouseInBox(app, mouseX, mouseY):
-    pt = Point(mouseX, mouseY)
-    for i, j, k, l in app.faces:
-        # adds each point in the face to the polygon
-        pointList = []
-        for pointIndex in [i, j, k, l]:
-            point = app.projectedBoxPoints[pointIndex].x, app.projectedBoxPoints[pointIndex].y
-            pointList.append(point)
-        face = Polygon(pointList)
-        if face.contains(pt):
-            return True
-    return False
-
-
 def main():
-    runApp(width = 1200, height = 800)
+    runApp(width = 1200, height = 800) # type: ignore
 
 main()
 
