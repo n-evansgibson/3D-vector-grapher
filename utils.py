@@ -127,9 +127,9 @@ def addOutput(app, box):
         eqIndex = input.find('=')
         vector = input[eqIndex+1:]
         dataType = 'vector field'
-        X = [-4, -2, 0, 2, 4]
-        Y = [-4, -2, 0, 2, 4]
-        Z = [-4, -2, 0, 2, 4]
+        X = [-4, -3, -2, -1, 0, 1, 2, 3, 4]
+        Y = [-4, -3, -2, -1, 0, 1, 2, 3, 4]
+        Z = [-4, -3, -2, -1, 0, 1, 2, 3, 4]
         app.mesh = meshgrid(X, Y, Z)
         vectorFieldPts = []
         for point in app.mesh:
@@ -267,7 +267,7 @@ def evalVector(v, x, y, z):
     # find components a, b, and c of vector
     splitter = ',' if ',' in v else ' '
     vectorStripped = v.strip()[1:-1]
-    vectorScale = 0.3
+    vectorScale = 0.1
     components = vectorStripped.split(splitter)
     a = components[0].strip()
     b = components[1].strip()
@@ -283,7 +283,3 @@ def evalVector(v, x, y, z):
     # add starting point to new ending point to get vector
     return np.array([x + newX*vectorScale, y + newY*vectorScale, z + newZ*vectorScale])
 
-
-    
-
-    
