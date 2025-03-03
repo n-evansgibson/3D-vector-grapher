@@ -74,9 +74,9 @@ def onAppStart(app):
     app.holdCount = 0
 
     # mesh
-    X = [-4, -2, 0, 2, 4]
-    Y = [-4, -2, 0, 2, 4]
-    Z = [-4, -2, 0, 2, 4]
+    X = [-4, -3, -2, -1, 0, 1, 2, 3, 4]
+    Y = [-4, -3, -2, -1, 0, 1, 2, 3, 4]
+    Z = [-4, -3, -2, -1, 0, 1, 2, 3, 4]
     app.mesh = meshgrid(X, Y, Z)
     app.originalMesh = [copy.deepcopy(point) for point in app.mesh]
     app.projectedMeshPoints = [None for _ in range(len(app.originalMesh))]
@@ -371,3 +371,4 @@ main()
 #   chatGPT uses:
 #       used to debug problem with rotation matrices compounding on one another, causing excess rot speed
 #       used to debug infinte loop with creating new input boxes
+
